@@ -1,53 +1,46 @@
 const express = require('express');
-const supabase = require('../db');
+const db = require('../db');
 const { authenticateToken } = require('../middleware/auth');
+const asyncHandler = require('../middleware/asyncHandler');
 
 const router = express.Router();
 
-router.get('/', authenticateToken, async (req, res) => {
-  const { data: households, error } = await supabase
-    .from('households')
-    .select('*, applicants(count)')
-    .order('id', { ascending: false });
-  if (error) return res.status(500).json({ error: error.message });
-  const householdsWithCount = (households || []).map(h => ({
-    ...h,
-    applicant_count: h.applicants ? h.applicants.length : 0
-  }));
-  res.json(householdsWithCount);
-});
+router.get('/', authenticateToken, asyncHandler(async (req, res) => {
+  const households = await db.all(`
+    SELECT h.*, (SELECT COUNT(*) FROM applicants a WHERE a.household_id = h.id) AS applicant_count
+    FROM households h
+    ORDER BY h.id DESC
+  `);
+  res.json(households);
+}));
 
-router.get('/:id/applicants', authenticateToken, async (req, res) => {
-  const { data: applicants, error } = await supabase
-    .from('applicants')
-    .select('*')
-    .eq('household_id', req.params.id)
-    .order('id', { ascending: false });
-  if (error) return res.status(500).json({ error: error.message });
+router.get('/:id/applicants', authenticateToken, asyncHandler(async (req, res) => {
+  const applicants = await db.all(
+    "SELECT * FROM applicants WHERE household_id = ? ORDER BY id DESC",
+    [req.params.id]
+  );
   res.json(applicants);
-});
+}));
 
-router.post('/', authenticateToken, async (req, res) => {
+router.post('/', authenticateToken, asyncHandler(async (req, res) => {
   const { household_code, address, barangay, city, province, monthly_income, household_size, housing_status } = req.body;
-  const { data, error } = await supabase
-    .from('households')
-    .insert({ household_code, address, barangay, city, province, monthly_income, household_size, housing_status })
-    .select()
-    .single();
-  if (error) return res.status(400).json({ error: error.message });
-  res.status(201).json({ household_code: data.household_code, id: data.id });
-});
+  if (!household_code) return res.status(400).json({ error: 'Household code is required.' });
+  const existing = await db.get("SELECT id FROM households WHERE household_code = ?", [household_code]);
+  if (existing) return res.status(400).json({ error: 'Household code already exists.' });
+  const result = await db.run(
+    "INSERT INTO households (household_code, address, barangay, city, province, monthly_income, household_size, housing_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    [household_code, address, barangay, city, province, monthly_income, household_size, housing_status]
+  );
+  res.status(201).json({ id: result.lastID, household_code });
+}));
 
-router.patch('/:id', authenticateToken, async (req, res) => {
+router.patch('/:id', authenticateToken, asyncHandler(async (req, res) => {
   const { household_code, address, barangay, city, province, monthly_income, household_size, housing_status } = req.body;
-  const { data, error } = await supabase
-    .from('households')
-    .update({ household_code, address, barangay, city, province, monthly_income, household_size, housing_status })
-    .eq('id', req.params.id)
-    .select()
-    .single();
-  if (error) return res.status(400).json({ error: error.message });
+  await db.run(
+    "UPDATE households SET household_code = ?, address = ?, barangay = ?, city = ?, province = ?, monthly_income = ?, household_size = ?, housing_status = ? WHERE id = ?",
+    [household_code, address, barangay, city, province, monthly_income, household_size, housing_status, req.params.id]
+  );
   res.json({ id: req.params.id });
-});
+}));
 
 module.exports = router;

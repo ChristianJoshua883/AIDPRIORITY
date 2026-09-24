@@ -1,54 +1,37 @@
 const express = require('express');
-const supabase = require('../db');
-const { authenticateToken, requireRole } = require('../middleware/auth');
+const db = require('../db');
+const { authenticateToken } = require('../middleware/auth');
+const asyncHandler = require('../middleware/asyncHandler');
 
 const router = express.Router();
 
-router.get('/', authenticateToken, async (req, res) => {
-  const { data: beneficiaries, error } = await supabase
-    .from('beneficiaries')
-    .select(`
-      *,
-      applicants(first_name, last_name),
-      households(household_code)
-    `)
-    .order('id', { ascending: false });
-  if (error) return res.status(500).json({ error: error.message });
-  const formatted = (beneficiaries || []).map(b => ({
-    ...b,
-    beneficiary_name: b.applicants ? `${b.applicants.first_name} ${b.applicants.last_name}` : null,
-    household_code: b.households ? b.households.household_code : null,
-    applicant_id: b.applicant_id
-  }));
-  res.json(formatted);
-});
+router.get('/', authenticateToken, asyncHandler(async (req, res) => {
+  const beneficiaries = await db.all(`
+    SELECT b.*, ap.first_name || ' ' || ap.last_name AS beneficiary_name, h.household_code, ap.id AS applicant_id
+    FROM beneficiaries b
+    JOIN applicants ap ON ap.id = b.applicant_id
+    JOIN households h ON h.id = ap.household_id
+    ORDER BY b.id DESC
+  `);
+  res.json(beneficiaries);
+}));
 
-router.post('/:applicant_id/register', authenticateToken, async (req, res) => {
+router.post('/:applicant_id/register', authenticateToken, asyncHandler(async (req, res) => {
   const applicant_id = req.params.applicant_id;
-  const { data: approved, error: approvedError } = await supabase
-    .from('assessments')
-    .select('id')
-    .eq('applicant_id', applicant_id)
-    .eq('decision', 'ELIGIBLE')
-    .order('id', { ascending: false })
-    .limit(1)
-    .single();
-  if (approvedError || !approved) return res.status(400).json({ error: 'A human ELIGIBLE decision is required before registering a beneficiary.' });
+  const approved = await db.get(
+    "SELECT id FROM assessments WHERE applicant_id = ? AND decision = 'ELIGIBLE' ORDER BY id DESC LIMIT 1",
+    [applicant_id]
+  );
+  if (!approved) return res.status(400).json({ error: 'A human ELIGIBLE decision is required before registering a beneficiary.' });
 
-  const { data: existing, error: existingError } = await supabase
-    .from('beneficiaries')
-    .select('id')
-    .eq('applicant_id', applicant_id)
-    .single();
+  const existing = await db.get("SELECT id FROM beneficiaries WHERE applicant_id = ?", [applicant_id]);
   if (existing) return res.status(400).json({ error: 'Beneficiary already registered.' });
 
-  const { data, error } = await supabase
-    .from('beneficiaries')
-    .insert({ applicant_id, registered_by: req.user.id })
-    .select()
-    .single();
-  if (error) return res.status(400).json({ error: error.message });
-  res.status(201).json({ id: data.id });
-});
+  const result = await db.run(
+    "INSERT INTO beneficiaries (applicant_id, registered_by) VALUES (?, ?)",
+    [applicant_id, req.user.id]
+  );
+  res.status(201).json({ id: result.lastID });
+}));
 
 module.exports = router;

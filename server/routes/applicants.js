@@ -1,93 +1,76 @@
 const express = require('express');
-const supabase = require('../db');
+const db = require('../db');
 const { authenticateToken } = require('../middleware/auth');
+const asyncHandler = require('../middleware/asyncHandler');
 
 const router = express.Router();
 
-router.get('/', authenticateToken, async (req, res) => {
-  const { data: applicants, error } = await supabase
-    .from('applicants')
-    .select(`
-      *,
-      households(*),
-      assessments(
-        id, applicant_id, recommended_priority, decision, created_at
-      )
-    `)
-    .order('id', { ascending: false });
-  if (error) return res.status(500).json({ error: error.message });
-  const formatted = (applicants || []).map(a => ({
-    ...a,
-    household_code: a.households ? a.households.household_code : null,
-    barangay: a.households ? a.households.barangay : null,
-    city: a.households ? a.households.city : null,
-    monthly_income: a.households ? a.households.monthly_income : null,
-    household_size: a.households ? a.households.household_size : null,
-    recommended_priority: a.assessments && a.assessments.length > 0 ? a.assessments[0].recommended_priority : null,
-    decision: a.assessments && a.assessments.length > 0 ? a.assessments[0].decision : null,
-    assessment_date: a.assessments && a.assessments.length > 0 ? a.assessments[0].created_at : null
-  }));
-  res.json(formatted);
-});
+router.get('/', authenticateToken, asyncHandler(async (req, res) => {
+  const applicants = await db.all(`
+    SELECT a.*, h.household_code, h.barangay, h.city, h.monthly_income, h.household_size,
+           a2.recommended_priority, a2.decision, a2.created_at AS assessment_date
+    FROM applicants a
+    JOIN households h ON h.id = a.household_id
+    LEFT JOIN (SELECT * FROM assessments WHERE id IN (SELECT MAX(id) FROM assessments GROUP BY applicant_id)) a2 ON a2.applicant_id = a.id
+    ORDER BY a.id DESC
+  `);
+  res.json(applicants);
+}));
 
-router.get('/:id', authenticateToken, async (req, res) => {
-  const { data: applicant, error } = await supabase
-    .from('applicants')
-    .select('*, households(*)')
-    .eq('id', req.params.id)
-    .single();
-  if (error || !applicant) return res.status(404).json({ error: 'Applicant not found.' });
+router.get('/:id', authenticateToken, asyncHandler(async (req, res) => {
+  const applicant = await db.get(
+    "SELECT a.*, h.* FROM applicants a JOIN households h ON h.id = a.household_id WHERE a.id = ?",
+    [req.params.id]
+  );
+  if (!applicant) return res.status(404).json({ error: 'Applicant not found.' });
 
-  const { data: members, error: membersError } = await supabase
-    .from('household_members')
-    .select('*')
-    .eq('household_id', applicant.household_id)
-    .order('age', { ascending: false });
+  const members = await db.all(
+    "SELECT * FROM household_members WHERE household_id = ? ORDER BY age DESC",
+    [applicant.household_id]
+  );
 
-  const { data: assessments, error: assessmentsError } = await supabase
-    .from('assessments')
-    .select(`
-      *,
-      users(full_name: full_name)
-    `)
-    .eq('applicant_id', req.params.id)
-    .order('id', { ascending: false });
+  const assessments = await db.all(`
+    SELECT a.*, u.full_name AS assessor_full_name
+    FROM assessments a
+    LEFT JOIN users u ON u.id = a.assessed_by
+    WHERE a.applicant_id = ?
+    ORDER BY a.id DESC
+  `, [req.params.id]);
 
-  const { data: beneficiary, error: beneficiaryError } = await supabase
-    .from('beneficiaries')
-    .select('*')
-    .eq('applicant_id', req.params.id)
-    .single();
+  const beneficiary = await db.get(
+    "SELECT * FROM beneficiaries WHERE applicant_id = ?",
+    [req.params.id]
+  );
 
   res.json({
     ...applicant,
-    household_members: members || [],
-    assessments: assessments || [],
+    household_members: members,
+    assessments,
     beneficiary: beneficiary || null
   });
-});
+}));
 
-router.post('/', authenticateToken, async (req, res) => {
+router.post('/', authenticateToken, asyncHandler(async (req, res) => {
   const { household_id, first_name, middle_name, last_name, birth_date, sex, civil_status, contact_number, occupation } = req.body;
-  const { data, error } = await supabase
-    .from('applicants')
-    .insert({ household_id, first_name, middle_name, last_name, birth_date, sex, civil_status, contact_number, occupation })
-    .select()
-    .single();
-  if (error) return res.status(400).json({ error: error.message });
-  res.status(201).json({ id: data.id });
-});
+  if (!household_id || !first_name || !last_name) {
+    return res.status(400).json({ error: 'Household, first name, and last name are required.' });
+  }
+  const hh = await db.get("SELECT id FROM households WHERE id = ?", [household_id]);
+  if (!hh) return res.status(400).json({ error: 'Household does not exist.' });
+  const result = await db.run(
+    "INSERT INTO applicants (household_id, first_name, middle_name, last_name, birth_date, sex, civil_status, contact_number, occupation) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    [household_id, first_name, middle_name, last_name, birth_date, sex, civil_status, contact_number, occupation]
+  );
+  res.status(201).json({ id: result.lastID });
+}));
 
-router.patch('/:id', authenticateToken, async (req, res) => {
+router.patch('/:id', authenticateToken, asyncHandler(async (req, res) => {
   const { household_id, first_name, middle_name, last_name, birth_date, sex, civil_status, contact_number, occupation } = req.body;
-  const { data, error } = await supabase
-    .from('applicants')
-    .update({ household_id, first_name, middle_name, last_name, birth_date, sex, civil_status, contact_number, occupation })
-    .eq('id', req.params.id)
-    .select()
-    .single();
-  if (error) return res.status(400).json({ error: error.message });
+  await db.run(
+    "UPDATE applicants SET household_id = ?, first_name = ?, middle_name = ?, last_name = ?, birth_date = ?, sex = ?, civil_status = ?, contact_number = ?, occupation = ? WHERE id = ?",
+    [household_id, first_name, middle_name, last_name, birth_date, sex, civil_status, contact_number, occupation, req.params.id]
+  );
   res.json({ id: req.params.id });
-});
+}));
 
 module.exports = router;
