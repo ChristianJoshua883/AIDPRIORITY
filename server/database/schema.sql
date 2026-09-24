@@ -1,28 +1,28 @@
 CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT UNIQUE NOT NULL,
+    id SERIAL PRIMARY KEY,
+    username VARCHAR(255) UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
     full_name TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'social_worker',
     active INTEGER DEFAULT 1,
-    created_at TEXT DEFAULT (datetime('now'))
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS households (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    household_code TEXT UNIQUE NOT NULL,
+    id SERIAL PRIMARY KEY,
+    household_code VARCHAR(50) UNIQUE NOT NULL,
     address TEXT,
     barangay TEXT,
     city TEXT,
     province TEXT,
-    monthly_income REAL DEFAULT 0,
+    monthly_income DOUBLE PRECISION DEFAULT 0,
     household_size INTEGER DEFAULT 1,
     housing_status TEXT,
-    created_at TEXT DEFAULT (datetime('now'))
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS applicants (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     household_id INTEGER NOT NULL,
     first_name TEXT NOT NULL,
     middle_name TEXT,
@@ -32,15 +32,15 @@ CREATE TABLE IF NOT EXISTS applicants (
     civil_status TEXT,
     contact_number TEXT,
     occupation TEXT,
-    created_at TEXT DEFAULT (datetime('now')),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (household_id) REFERENCES households(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS assessments (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     applicant_id INTEGER NOT NULL,
     assessed_by INTEGER NOT NULL,
-    income_per_capita REAL DEFAULT 0,
+    income_per_capita DOUBLE PRECISION DEFAULT 0,
     low_income INTEGER DEFAULT 0,
     vulnerable_member INTEGER DEFAULT 0,
     disability_or_senior INTEGER DEFAULT 0,
@@ -52,15 +52,15 @@ CREATE TABLE IF NOT EXISTS assessments (
     notes TEXT,
     decision TEXT DEFAULT 'PENDING',
     decision_by INTEGER,
-    decision_at TEXT,
-    created_at TEXT DEFAULT (datetime('now')),
+    decision_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (applicant_id) REFERENCES applicants(id) ON DELETE CASCADE,
     FOREIGN KEY (assessed_by) REFERENCES users(id),
     FOREIGN KEY (decision_by) REFERENCES users(id)
 );
 
 CREATE TABLE IF NOT EXISTS assessment_criteria (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     name TEXT NOT NULL,
     description TEXT,
     max_points INTEGER DEFAULT 0,
@@ -68,40 +68,40 @@ CREATE TABLE IF NOT EXISTS assessment_criteria (
 );
 
 CREATE TABLE IF NOT EXISTS beneficiaries (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     applicant_id INTEGER NOT NULL,
     registered_by INTEGER NOT NULL,
     status TEXT DEFAULT 'ACTIVE',
-    registered_at TEXT DEFAULT (datetime('now')),
+    registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (applicant_id) REFERENCES applicants(id) ON DELETE CASCADE,
     FOREIGN KEY (registered_by) REFERENCES users(id)
 );
 
 CREATE TABLE IF NOT EXISTS assistance_records (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     beneficiary_id INTEGER NOT NULL,
     assistance_type TEXT NOT NULL,
-    amount REAL NOT NULL DEFAULT 0,
+    amount DOUBLE PRECISION NOT NULL DEFAULT 0,
     distribution_date TEXT NOT NULL,
     program_source TEXT,
     reference_number TEXT,
     status TEXT DEFAULT 'RELEASED',
     released_by INTEGER,
     remarks TEXT,
-    created_at TEXT DEFAULT (datetime('now')),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (beneficiary_id) REFERENCES beneficiaries(id) ON DELETE CASCADE,
     FOREIGN KEY (released_by) REFERENCES users(id)
 );
 
 CREATE TABLE IF NOT EXISTS audit_logs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     user_id INTEGER,
     action TEXT NOT NULL,
     entity_type TEXT,
     entity_id INTEGER,
     details TEXT,
     ip_address TEXT,
-    created_at TEXT DEFAULT (datetime('now')),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id)
 );
 

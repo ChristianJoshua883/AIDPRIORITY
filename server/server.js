@@ -1,9 +1,10 @@
 const express = require('express');
 const cors = require('cors');
-const path = require('path');
-const fs = require('fs');
-const db = require('./db');
+require('dotenv').config();
 const routes = require('./routes');
+const supabase = require('./db');
+const fs = require('fs');
+const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -12,24 +13,36 @@ app.use(cors({ origin: 'http://localhost:5173', credentials: true }));
 app.use(express.json());
 app.use('/api', routes);
 
-const schemaPath = path.join(__dirname, 'database', 'schema.sql');
-const seedPath = path.join(__dirname, 'database', 'seed.sql');
-
-db.serialize(() => {
-  if (fs.existsSync(schemaPath)) {
-    db.exec(fs.readFileSync(schemaPath, 'utf8'));
-  }
-  const existingAdmin = db.get("SELECT id FROM users WHERE username = ?", ['admin']);
-  if (!existingAdmin) {
-    const bcrypt = require('bcrypt');
-    const hash = bcrypt.hashSync('admin123', 10);
-    db.run("INSERT INTO users (username, password_hash, full_name, role, active) VALUES (?, ?, ?, ?, 1)", ['admin', hash, 'System Administrator', 'admin']);
-  }
-  if (fs.existsSync(seedPath)) {
-    db.exec(fs.readFileSync(seedPath, 'utf8'));
-  }
+app.use((err, req, res, next) => {
+  console.error(err);
+  res.status(500).json({ error: err.message || 'Internal server error.' });
 });
 
-app.listen(PORT, () => {
-  console.log(`AidPriority server running on http://localhost:${PORT}`);
+async function init() {
+  try {
+    const { data: existingAdmin, error } = await supabase
+      .from('users')
+      .select('id')
+      .eq('username', 'admin')
+      .single();
+    if (!existingAdmin) {
+      const bcrypt = require('bcrypt');
+      const hash = bcrypt.hashSync('admin123', 10);
+      await supabase.from('users').insert({ username: 'admin', password_hash: hash, full_name: 'System Administrator', role: 'admin', active: 1 });
+      console.log('Default admin user created.');
+    }
+    console.log('Supabase connection verified.');
+  } catch (err) {
+    console.error('Failed to initialize Supabase:', err.message);
+    process.exit(1);
+  }
+}
+
+init().then(() => {
+  app.listen(PORT, () => {
+    console.log(`AidPriority server running on http://localhost:${PORT}`);
+  });
+}).catch((err) => {
+  console.error('Failed to initialize:', err);
+  process.exit(1);
 });

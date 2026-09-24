@@ -1,28 +1,44 @@
 const express = require('express');
-const db = require('../db');
+const supabase = require('../db');
 const { authenticateToken } = require('../middleware/auth');
 
 const router = express.Router();
 
-router.get('/', authenticateToken, (req, res) => {
-  const { status, priority, date_from, date_to } = req.query;
-  let where = 'WHERE 1=1';
-  const params = [];
-  if (status) { where += ' AND b.status = ?'; params.push(status); }
-  if (priority) { where += ' AND a.recommended_priority = ?'; params.push(priority); }
-  if (date_from) { where += ' AND a.created_at >= ?'; params.push(date_from); }
-  if (date_to) { where += ' AND a.created_at <= ?'; params.push(date_to); }
+router.get('/', authenticateToken, async (req, res) => {
+  try {
+    const { status, priority, date_from, date_to } = req.query;
+    let query = supabase
+      .from('applicants')
+      .select(`
+        *,
+        households(household_code, barangay, city, monthly_income, household_size),
+        assessments(recommended_priority, decision, created_at)
+      `)
+      .order('id', { ascending: false });
 
-  const applicants = db.all(`
-    SELECT a.*, h.household_code, h.barangay, h.city, h.monthly_income, h.household_size,
-           a2.recommended_priority, a2.decision, a2.created_at AS assessment_date
-    FROM applicants a
-    JOIN households h ON h.id = a.household_id
-    LEFT JOIN assessments a2 ON a2.applicant_id = a.id
-    ${where}
-    ORDER BY a.id DESC
-  `, params);
-  res.json(applicants);
+    if (status) query = query.eq('status', status);
+    if (priority) query = query.eq('assessments.recommended_priority', priority);
+    if (date_from) query = query.gte('created_at', date_from);
+    if (date_to) query = query.lte('created_at', date_to);
+
+    const { data: applicants, error } = await query;
+    if (error) return res.status(500).json({ error: error.message });
+
+    const formatted = (applicants || []).map(a => ({
+      ...a,
+      household_code: a.households ? a.households.household_code : null,
+      barangay: a.households ? a.households.barangay : null,
+      city: a.households ? a.households.city : null,
+      monthly_income: a.households ? a.households.monthly_income : null,
+      household_size: a.households ? a.households.household_size : null,
+      recommended_priority: a.assessments && a.assessments.length > 0 ? a.assessments[0].recommended_priority : null,
+      decision: a.assessments && a.assessments.length > 0 ? a.assessments[0].decision : null,
+      assessment_date: a.assessments && a.assessments.length > 0 ? a.assessments[0].created_at : null
+    }));
+    res.json(formatted);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 module.exports = router;

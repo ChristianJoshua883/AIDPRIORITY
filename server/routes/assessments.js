@@ -1,5 +1,5 @@
 const express = require('express');
-const db = require('../db');
+const supabase = require('../db');
 const { authenticateToken } = require('../middleware/auth');
 
 const router = express.Router();
@@ -12,92 +12,79 @@ function calculatePriority(data) {
   if (data.dependent_children) score += 1;
   if (data.housing_insecurity) score += 2;
   if (data.emergency_situation) score += 3;
-
   let recommended_priority = 'LOW';
   if (score >= 7) recommended_priority = 'HIGH';
   else if (score >= 4) recommended_priority = 'MEDIUM';
-
   return { score, recommended_priority };
 }
 
-router.get('/', authenticateToken, (req, res) => {
-  const assessments = db.all(`
-    SELECT a.*, u.full_name AS assessor_name, ap.first_name || ' ' || ap.last_name AS applicant_name
-    FROM assessments a
-    JOIN applicants ap ON ap.id = a.applicant_id
-    LEFT JOIN users u ON u.id = a.assessed_by
-    ORDER BY a.id DESC
-  `);
-  res.json(assessments);
+router.get('/', authenticateToken, async (req, res) => {
+  const { data: assessments, error } = await supabase
+    .from('assessments')
+    .select(`
+      *,
+      users(full_name: full_name),
+      applicants(first_name, last_name)
+    `)
+    .order('id', { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+  const formatted = (assessments || []).map(a => ({
+    ...a,
+    assessor_name: a.users ? a.users.full_name : null,
+    applicant_name: a.applicants ? `${a.applicants.first_name} ${a.applicants.last_name}` : null
+  }));
+  res.json(formatted);
 });
 
-router.get('/:id', authenticateToken, (req, res) => {
-  const assessment = db.get(`
-    SELECT a.*, u.full_name AS assessor_name, ap.first_name || ' ' || ap.last_name AS applicant_name
-    FROM assessments a
-    JOIN applicants ap ON ap.id = a.applicant_id
-    LEFT JOIN users u ON u.id = a.assessed_by
-    WHERE a.id = ?
-  `, [req.params.id]);
-
-  if (!assessment) return res.status(404).json({ error: 'Assessment not found.' });
-  res.json(assessment);
+router.get('/:id', authenticateToken, async (req, res) => {
+  const { data: assessment, error } = await supabase
+    .from('assessments')
+    .select(`
+      *,
+      users(full_name: full_name),
+      applicants(first_name, last_name)
+    `)
+    .eq('id', req.params.id)
+    .single();
+  if (error || !assessment) return res.status(404).json({ error: 'Assessment not found.' });
+  const formatted = {
+    ...assessment,
+    assessor_name: assessment.users ? assessment.users.full_name : null,
+    applicant_name: assessment.applicants ? `${assessment.applicants.first_name} ${assessment.applicants.last_name}` : null
+  };
+  res.json(formatted);
 });
 
-router.post('/', authenticateToken, (req, res) => {
-  const {
-    applicant_id,
-    income_per_capita,
-    low_income,
-    vulnerable_member,
-    disability_or_senior,
-    dependent_children,
-    housing_insecurity,
-    emergency_situation,
-    notes
-  } = req.body;
-
-  const { score, recommended_priority } = calculatePriority({
-    low_income, vulnerable_member, disability_or_senior,
-    dependent_children, housing_insecurity, emergency_situation
-  });
-
-  db.run(`
-    INSERT INTO assessments (
-      applicant_id, assessed_by, income_per_capita,
+router.post('/', authenticateToken, async (req, res) => {
+  const { applicant_id, income_per_capita, low_income, vulnerable_member, disability_or_senior, dependent_children, housing_insecurity, emergency_situation, notes } = req.body;
+  const { score, recommended_priority } = calculatePriority({ low_income, vulnerable_member, disability_or_senior, dependent_children, housing_insecurity, emergency_situation });
+  const { data, error } = await supabase
+    .from('assessments')
+    .insert({
+      applicant_id, assessed_by: req.user.id, income_per_capita,
       low_income, vulnerable_member, disability_or_senior,
       dependent_children, housing_insecurity, emergency_situation,
-      criteria_score, recommended_priority, notes
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `, [
-    applicant_id, req.user.id, income_per_capita,
-    low_income, vulnerable_member, disability_or_senior,
-    dependent_children, housing_insecurity, emergency_situation,
-    score, recommended_priority, notes || null
-  ], function (err) {
-    if (err) return res.status(400).json({ error: err.message });
-    const newAssessment = db.get("SELECT * FROM assessments WHERE id = ?", [this.lastID]);
-    res.status(201).json({ ...newAssessment, recommended_priority, criteria_score: score });
-  });
+      criteria_score: score, recommended_priority,
+      notes: notes || null
+    })
+    .select()
+    .single();
+  if (error) return res.status(400).json({ error: error.message });
+  res.status(201).json({ ...data, recommended_priority, criteria_score: score });
 });
 
-router.post('/:id/decision', authenticateToken, (req, res) => {
+router.post('/:id/decision', authenticateToken, async (req, res) => {
   const { decision } = req.body;
   const allowed = ['ELIGIBLE', 'NOT_ELIGIBLE', 'FOR_REVIEW', 'PENDING'];
-  if (!allowed.includes(decision)) {
-    return res.status(400).json({ error: 'Invalid decision.' });
-  }
-
-  db.run(
-    "UPDATE assessments SET decision = ?, decision_by = ?, decision_at = ? WHERE id = ?",
-    [decision, req.user.id, new Date().toISOString(), req.params.id],
-    function (err) {
-      if (err) return res.status(400).json({ error: err.message });
-      if (this.changes === 0) return res.status(404).json({ error: 'Assessment not found.' });
-      const updated = db.get("SELECT * FROM assessments WHERE id = ?", [req.params.id]);
-      res.json(updated);
-    }
-  );
+  if (!allowed.includes(decision)) return res.status(400).json({ error: 'Invalid decision.' });
+  const { data, error } = await supabase
+    .from('assessments')
+    .update({ decision, decision_by: req.user.id, decision_at: new Date().toISOString() })
+    .eq('id', req.params.id)
+    .select()
+    .single();
+  if (error) return res.status(400).json({ error: error.message });
+  res.json(data);
 });
 
 module.exports = router;

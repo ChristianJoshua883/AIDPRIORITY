@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
-import api from './services/api';
+import supabase from './services/supabase';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Applicants from './pages/Applicants';
@@ -12,20 +12,53 @@ import Reports from './pages/Reports';
 
 function App() {
   const [user, setUser] = useState(JSON.parse(localStorage.getItem('user')));
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        const userData = { id: session.user.id, full_name: session.user.user_metadata?.full_name || session.user.email, role: session.user.user_metadata?.role || 'social_worker', username: session.user.email };
+        localStorage.setItem('token', session.access_token);
+        localStorage.setItem('user', JSON.stringify(userData));
+        setUser(userData);
+      }
+      setLoading(false);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session) {
+        const userData = { id: session.user.id, full_name: session.user.user_metadata?.full_name || session.user.email, role: session.user.user_metadata?.role || 'social_worker', username: session.user.email };
+        localStorage.setItem('token', session.access_token);
+        localStorage.setItem('user', JSON.stringify(userData));
+        setUser(userData);
+      } else {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        setUser(null);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
 
   const login = async (data) => {
-    await api.post('/auth/login', data);
     localStorage.setItem('token', data.token);
     localStorage.setItem('user', JSON.stringify(data.user));
     setUser(data.user);
   };
 
   const register = async (data) => {
-    const res = await api.post('/auth/register', data);
-    return res.data;
+    const { data: sessionData, error } = await supabase.auth.signUp({
+      email: data.username,
+      password: data.password,
+      options: { data: { full_name: data.full_name, role: data.role } }
+    });
+    if (error) throw error;
+    return sessionData;
   };
 
-  const logout = () => {
+  const logout = async () => {
+    await supabase.auth.signOut();
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     setUser(null);
@@ -35,6 +68,8 @@ function App() {
     localStorage.setItem('user', JSON.stringify(userData));
     setUser(userData);
   };
+
+  if (loading) return <div>Loading...</div>;
 
   if (!user) return <Login onLogin={login} onRegister={register} />;
 

@@ -1,8 +1,7 @@
 const express = require('express');
-const cors = require('cors');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const db = require('../db');
+const supabase = require('../db');
 const { authenticateToken, requireRole, SECRET } = require('../middleware/auth');
 
 const router = express.Router();
@@ -14,12 +13,14 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ error: 'Username and password are required.' });
     }
 
-    const user = db.get(
-      "SELECT * FROM users WHERE username = ? AND active = 1",
-      [username]
-    );
+    const { data: user, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('username', username)
+      .eq('active', 1)
+      .single();
 
-    if (!user || !bcrypt.compareSync(password, user.password_hash)) {
+    if (error || !user || !bcrypt.compareSync(password, user.password_hash)) {
       return res.status(401).json({ error: 'Invalid username or password.' });
     }
 
@@ -46,25 +47,35 @@ router.post('/register', async (req, res) => {
     }
 
     const password_hash = bcrypt.hashSync(password, 10);
-    db.run(
-      "INSERT INTO users (username, password_hash, full_name, role) VALUES (?, ?, ?, ?)",
-      [username, password_hash, full_name, role],
-      function (err) {
-        if (err) return res.status(400).json({ error: 'Username already exists.' });
-        res.status(201).json({ id: this.lastID, username, full_name, role });
-      }
-    );
+    const { data, error } = await supabase
+      .from('users')
+      .insert({ username, password_hash, full_name, role })
+      .select()
+      .single();
+
+    if (error) return res.status(400).json({ error: 'Username already exists.' });
+    res.status(201).json({ username, full_name, role });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-router.get('/me', authenticateToken, (req, res) => {
-  res.json(req.user);
+router.get('/me', authenticateToken, async (req, res) => {
+  const { data: user, error } = await supabase
+    .from('users')
+    .select('id, username, full_name, role, active, created_at')
+    .eq('id', req.user.id)
+    .single();
+  if (error) return res.status(404).json({ error: 'User not found.' });
+  res.json(user);
 });
 
-router.get('/users', authenticateToken, requireRole('admin'), (req, res) => {
-  const users = db.all("SELECT id, username, full_name, role, active, created_at FROM users ORDER BY id");
+router.get('/users', authenticateToken, requireRole('admin'), async (req, res) => {
+  const { data: users, error } = await supabase
+    .from('users')
+    .select('id, username, full_name, role, active, created_at')
+    .order('id');
+  if (error) return res.status(500).json({ error: error.message });
   res.json(users);
 });
 
@@ -75,14 +86,13 @@ router.post('/users', authenticateToken, requireRole('admin'), async (req, res) 
       return res.status(400).json({ error: 'Invalid role.' });
     }
     const password_hash = bcrypt.hashSync(password, 10);
-    db.run(
-      "INSERT INTO users (username, password_hash, full_name, role) VALUES (?, ?, ?, ?)",
-      [username, password_hash, full_name, role],
-      function (err) {
-        if (err) return res.status(400).json({ error: 'Username already exists.' });
-        res.status(201).json({ id: this.lastID, username, full_name, role });
-      }
-    );
+    const { data, error } = await supabase
+      .from('users')
+      .insert({ username, password_hash, full_name, role })
+      .select()
+      .single();
+    if (error) return res.status(400).json({ error: 'Username already exists.' });
+    res.status(201).json({ username, full_name, role });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

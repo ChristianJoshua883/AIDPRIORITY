@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import api from '../services/api';
+import supabase from '../services/supabase';
 
 export default function Login({ onLogin, onRegister }) {
   const navigate = useNavigate();
@@ -17,16 +17,28 @@ export default function Login({ onLogin, onRegister }) {
     setLoading(true);
     try {
       if (tab === 'login') {
-        const res = await api.post('/auth/login', { username: form.username, password: form.password });
-        onLogin(res.data);
+        const { data, error: signInError } = await supabase.auth.signInWithPassword({
+          email: form.username,
+          password: form.password
+        });
+        if (signInError) throw signInError;
+        const userData = { id: data.user.id, full_name: data.user.user_metadata?.full_name || form.username, role: 'social_worker', username: form.username };
+        localStorage.setItem('token', data.session.access_token);
+        localStorage.setItem('user', JSON.stringify(userData));
+        onLogin({ token: data.session.access_token, user: userData });
         navigate('/');
       } else {
-        await onRegister(form);
+        const { data, error: signUpError } = await supabase.auth.signUp({
+          email: form.username,
+          password: form.password,
+          options: { data: { full_name: form.full_name, role: form.role } }
+        });
+        if (signUpError) throw signUpError;
         setError('Account created! Please log in.');
         setTab('login');
       }
     } catch (err) {
-      setError(err.response?.data?.error || 'An error occurred.');
+      setError(err.message);
     }
     setLoading(false);
   };
