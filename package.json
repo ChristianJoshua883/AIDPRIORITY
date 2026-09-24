@@ -1,0 +1,14 @@
+{
+  "name": "aidpriority",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "concurrently \"npm run start --prefix server\" \"npm run dev --prefix client\"",
+    "server": "npm run start --prefix server",
+    "client": "npm run dev --prefix client",
+    "install": "npm install --prefix server && npm install --prefix client"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
