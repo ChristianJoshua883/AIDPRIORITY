@@ -1,17 +1,21 @@
-const jwt = require('jsonwebtoken');
+const supabase = require('../db');
 
-const SECRET = process.env.JWT_SECRET || 'aidpriority-secret-key-change-in-production';
-
-function authenticateToken(req, res, next) {
+async function authenticateToken(req, res, next) {
   const header = req.headers['authorization'];
   const token = header && header.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'Access denied. No token provided.' });
 
   try {
-    const decoded = jwt.verify(token, SECRET);
-    req.user = { id: decoded.id, username: decoded.username, full_name: decoded.full_name, role: decoded.role };
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+    if (error || !user) return res.status(403).json({ error: 'Invalid or expired token.' });
+    req.user = {
+      id: user.id,
+      username: user.email,
+      full_name: user.user_metadata?.full_name || user.email,
+      role: user.user_metadata?.role || 'social_worker'
+    };
     next();
-  } catch (err) {
+  } catch {
     return res.status(403).json({ error: 'Invalid or expired token.' });
   }
 }
@@ -25,4 +29,4 @@ function requireRole(role) {
   };
 }
 
-module.exports = { authenticateToken, requireRole, SECRET };
+module.exports = { authenticateToken, requireRole };

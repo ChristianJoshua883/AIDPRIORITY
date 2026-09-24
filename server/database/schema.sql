@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS households (
 
 CREATE TABLE IF NOT EXISTS applicants (
     id SERIAL PRIMARY KEY,
-    household_id INTEGER NOT NULL,
+    household_id INTEGER NOT NULL REFERENCES households(id) ON DELETE CASCADE,
     first_name TEXT NOT NULL,
     middle_name TEXT,
     last_name TEXT NOT NULL,
@@ -32,14 +32,13 @@ CREATE TABLE IF NOT EXISTS applicants (
     civil_status TEXT,
     contact_number TEXT,
     occupation TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (household_id) REFERENCES households(id) ON DELETE CASCADE
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS assessments (
     id SERIAL PRIMARY KEY,
-    applicant_id INTEGER NOT NULL,
-    assessed_by INTEGER NOT NULL,
+    applicant_id INTEGER NOT NULL REFERENCES applicants(id) ON DELETE CASCADE,
+    assessed_by INTEGER NOT NULL REFERENCES users(id),
     income_per_capita DOUBLE PRECISION DEFAULT 0,
     low_income INTEGER DEFAULT 0,
     vulnerable_member INTEGER DEFAULT 0,
@@ -51,12 +50,9 @@ CREATE TABLE IF NOT EXISTS assessments (
     recommended_priority TEXT DEFAULT 'LOW',
     notes TEXT,
     decision TEXT DEFAULT 'PENDING',
-    decision_by INTEGER,
+    decision_by INTEGER REFERENCES users(id),
     decision_at TIMESTAMP,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (applicant_id) REFERENCES applicants(id) ON DELETE CASCADE,
-    FOREIGN KEY (assessed_by) REFERENCES users(id),
-    FOREIGN KEY (decision_by) REFERENCES users(id)
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS assessment_criteria (
@@ -69,40 +65,35 @@ CREATE TABLE IF NOT EXISTS assessment_criteria (
 
 CREATE TABLE IF NOT EXISTS beneficiaries (
     id SERIAL PRIMARY KEY,
-    applicant_id INTEGER NOT NULL,
-    registered_by INTEGER NOT NULL,
+    applicant_id INTEGER NOT NULL REFERENCES applicants(id) ON DELETE CASCADE,
+    registered_by INTEGER NOT NULL REFERENCES users(id),
     status TEXT DEFAULT 'ACTIVE',
-    registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (applicant_id) REFERENCES applicants(id) ON DELETE CASCADE,
-    FOREIGN KEY (registered_by) REFERENCES users(id)
+    registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS assistance_records (
     id SERIAL PRIMARY KEY,
-    beneficiary_id INTEGER NOT NULL,
+    beneficiary_id INTEGER NOT NULL REFERENCES beneficiaries(id) ON DELETE CASCADE,
     assistance_type TEXT NOT NULL,
     amount DOUBLE PRECISION NOT NULL DEFAULT 0,
     distribution_date TEXT NOT NULL,
     program_source TEXT,
     reference_number TEXT,
     status TEXT DEFAULT 'RELEASED',
-    released_by INTEGER,
+    released_by INTEGER REFERENCES users(id),
     remarks TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (beneficiary_id) REFERENCES beneficiaries(id) ON DELETE CASCADE,
-    FOREIGN KEY (released_by) REFERENCES users(id)
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS audit_logs (
     id SERIAL PRIMARY KEY,
-    user_id INTEGER,
+    user_id INTEGER REFERENCES users(id),
     action TEXT NOT NULL,
     entity_type TEXT,
     entity_id INTEGER,
     details TEXT,
     ip_address TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id)
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_applicants_household ON applicants(household_id);

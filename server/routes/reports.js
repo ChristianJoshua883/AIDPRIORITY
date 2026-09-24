@@ -6,36 +6,60 @@ const router = express.Router();
 
 router.get('/', authenticateToken, async (req, res) => {
   try {
-    const { status, priority, date_from, date_to } = req.query;
+    const { priority, date_from, date_to } = req.query;
     let query = supabase
       .from('applicants')
-      .select(`
-        *,
-        households(household_code, barangay, city, monthly_income, household_size),
-        assessments(recommended_priority, decision, created_at)
-      `)
+      .select('*, households(household_code, barangay, city, monthly_income, household_size)')
       .order('id', { ascending: false });
-
-    if (status) query = query.eq('status', status);
-    if (priority) query = query.eq('assessments.recommended_priority', priority);
-    if (date_from) query = query.gte('created_at', date_from);
-    if (date_to) query = query.lte('created_at', date_to);
 
     const { data: applicants, error } = await query;
     if (error) return res.status(500).json({ error: error.message });
 
-    const formatted = (applicants || []).map(a => ({
+    let filtered = applicants || [];
+    if (priority || date_from || date_to) {
+      filtered = await Promise.all(filtered.map(async (a) => {
+        const { data: assessment } = await supabase
+          .from('assessments')
+          .select('recommended_priority, decision, created_at')
+          .eq('applicant_id', a.id)
+          .order('id', { ascending: false })
+          .limit(1)
+          .single();
+        a._assessment = assessment;
+        return a;
+      }));
+
+      filtered = filtered.filter((a) => {
+        if (priority && a._assessment?.recommended_priority !== priority) return false;
+        if (date_from && a._assessment?.created_at < date_from) return false;
+        if (date_to && a._assessment?.created_at > date_to) return false;
+        return true;
+      });
+    } else {
+      filtered = await Promise.all(filtered.map(async (a) => {
+        const { data: assessment } = await supabase
+          .from('assessments')
+          .select('recommended_priority, decision, created_at')
+          .eq('applicant_id', a.id)
+          .order('id', { ascending: false })
+          .limit(1)
+          .single();
+        a._assessment = assessment;
+        return a;
+      }));
+    }
+
+    res.json(filtered.map(a => ({
       ...a,
-      household_code: a.households ? a.households.household_code : null,
-      barangay: a.households ? a.households.barangay : null,
-      city: a.households ? a.households.city : null,
-      monthly_income: a.households ? a.households.monthly_income : null,
-      household_size: a.households ? a.households.household_size : null,
-      recommended_priority: a.assessments && a.assessments.length > 0 ? a.assessments[0].recommended_priority : null,
-      decision: a.assessments && a.assessments.length > 0 ? a.assessments[0].decision : null,
-      assessment_date: a.assessments && a.assessments.length > 0 ? a.assessments[0].created_at : null
-    }));
-    res.json(formatted);
+      household_code: a.households?.household_code || null,
+      barangay: a.households?.barangay || null,
+      city: a.households?.city || null,
+      monthly_income: a.households?.monthly_income || null,
+      household_size: a.households?.household_size || null,
+      recommended_priority: a._assessment?.recommended_priority || null,
+      decision: a._assessment?.decision || null,
+      assessment_date: a._assessment?.created_at || null
+    })));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

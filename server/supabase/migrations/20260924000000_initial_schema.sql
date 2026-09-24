@@ -111,3 +111,12 @@ CREATE INDEX IF NOT EXISTS idx_assessments_priority ON assessments(recommended_p
 CREATE INDEX IF NOT EXISTS idx_assessments_decision ON assessments(decision);
 CREATE INDEX IF NOT EXISTS idx_beneficiaries_status ON beneficiaries(status);
 CREATE INDEX IF NOT EXISTS idx_assistance_beneficiary ON assistance_records(beneficiary_id);
+
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE households ENABLE ROW LEVEL SECURITY;
+ALTER TABLE applicants ENABLE ROW LEVEL SECURITY;
+ALTER TABLE assessments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE assessment_criteria ENABLE ROW LEVEL SECURITY;
+ALTER TABLE beneficiaries ENABLE ROW LEVEL SECURITY;
+ALTER TABLE assistance_records ENABLE ROW LEVEL SECURITY;
+ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;

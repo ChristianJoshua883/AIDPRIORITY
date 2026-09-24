@@ -17,7 +17,12 @@ function App() {
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) {
-        const userData = { id: session.user.id, full_name: session.user.user_metadata?.full_name || session.user.email, role: session.user.user_metadata?.role || 'social_worker', username: session.user.email };
+        const userData = {
+          id: session.user.id,
+          full_name: session.user.user_metadata?.full_name || session.user.email,
+          role: session.user.user_metadata?.role || 'social_worker',
+          username: session.user.email
+        };
         localStorage.setItem('token', session.access_token);
         localStorage.setItem('user', JSON.stringify(userData));
         setUser(userData);
@@ -27,7 +32,12 @@ function App() {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (session) {
-        const userData = { id: session.user.id, full_name: session.user.user_metadata?.full_name || session.user.email, role: session.user.user_metadata?.role || 'social_worker', username: session.user.email };
+        const userData = {
+          id: session.user.id,
+          full_name: session.user.user_metadata?.full_name || session.user.email,
+          role: session.user.user_metadata?.role || 'social_worker',
+          username: session.user.email
+        };
         localStorage.setItem('token', session.access_token);
         localStorage.setItem('user', JSON.stringify(userData));
         setUser(userData);
@@ -51,7 +61,7 @@ function App() {
     const { data: sessionData, error } = await supabase.auth.signUp({
       email: data.username,
       password: data.password,
-      options: { data: { full_name: data.full_name, role: data.role } }
+      options: { data: { full_name: data.full_name, role: data.role || 'social_worker' } }
     });
     if (error) throw error;
     return sessionData;
@@ -64,13 +74,7 @@ function App() {
     setUser(null);
   };
 
-  const updateUser = (userData) => {
-    localStorage.setItem('user', JSON.stringify(userData));
-    setUser(userData);
-  };
-
   if (loading) return <div>Loading...</div>;
-
   if (!user) return <Login onLogin={login} onRegister={register} />;
 
   return (

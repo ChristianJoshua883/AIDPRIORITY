@@ -22,18 +22,24 @@ export default function Login({ onLogin, onRegister }) {
           password: form.password
         });
         if (signInError) throw signInError;
-        const userData = { id: data.user.id, full_name: data.user.user_metadata?.full_name || form.username, role: 'social_worker', username: form.username };
+        const userData = {
+          id: data.user.id,
+          full_name: data.user.user_metadata?.full_name || form.username,
+          role: data.user.user_metadata?.role || 'social_worker',
+          username: form.username
+        };
         localStorage.setItem('token', data.session.access_token);
         localStorage.setItem('user', JSON.stringify(userData));
-        onLogin({ token: data.session.access_token, user: userData });
+        await onLogin({ token: data.session.access_token, user: userData });
         navigate('/');
       } else {
-        const { data, error: signUpError } = await supabase.auth.signUp({
+        const { error: signUpError } = await supabase.auth.signUp({
           email: form.username,
           password: form.password,
           options: { data: { full_name: form.full_name, role: form.role } }
         });
         if (signUpError) throw signUpError;
+        await onRegister(form);
         setError('Account created! Please log in.');
         setTab('login');
       }
